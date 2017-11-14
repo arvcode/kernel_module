@@ -1,6 +1,7 @@
-# Kernel Module and user space application repository
 #README
-Steps done!
+Repository for kernel and userspace module.
+
+Steps done as below.
 1. Create a repo for kernel module.
 2. Follow LKMPG 2.6 to create a kernel module code and user space code.
 3. Both are targetted for ARMv7.
