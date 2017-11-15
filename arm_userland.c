@@ -11,9 +11,11 @@
 
 #include<stdio.h>
 #include<stdlib.h>
+#include<fcntl.h>
 
 #define DEV_NAME "/dev/keycatch"
-main() {
+#define PROC_NAME "/proc/keycatch"
+int main() {
 	int fd=0;
 	char buff[100];
 	int ret=0;
@@ -44,6 +46,25 @@ main() {
 		printf("read ret bytes %d in buff %s \n",ret,buff);
 		close(fd);
 		sleep(1);
+		
+		/*
+		 *uapi/asm-generic/fcntl.h
+		 *#define O_RDONLY        00000000
+		 *#define O_WRONLY        00000001
+		 *#define O_RDWR          00000002
+		 */
+		fd=open(PROC_NAME,O_RDWR); 
+		if (fd<0) {
+			printf("Cannot open /proc \n");	
+			return -1;
+		}
+		read(fd,buff,sizeof(buff));
+		printf("PROC CONTENTS \n %s \n", buff);
+		sprintf(buff,"Write to kernelspace \n");
+		write(fd,buff, sizeof(buff));
+		close(fd);
+		sleep(1);
+		
 	}
 
 
