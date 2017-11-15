@@ -12,7 +12,7 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<fcntl.h>
-
+#include"arm_ioctl.h"
 #define DEV_NAME "/dev/keycatch"
 #define PROC_NAME "/proc/keycatch"
 int main() {
@@ -44,6 +44,10 @@ int main() {
 		printf("PID is %d \n *** \n",getpid());
 		printf("sizeof buff is %d \n",sizeof(buff));
 		printf("read ret bytes %d in buff %s \n",ret,buff);
+	
+		ioctl(fd,IOCTL_READ_USR_MSG, buff);
+		ioctl(fd,IOCTL_WRITE_USR_MSG,buff);
+		printf("IOCTL call buff is %s \n",buff);
 		close(fd);
 		sleep(1);
 		

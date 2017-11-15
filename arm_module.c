@@ -15,7 +15,7 @@
 #include<linux/fs.h>
 #include<asm/uaccess.h>
 #include<linux/proc_fs.h>
-
+#include"arm_ioctl.h"
 /* /dev/  entry*/
 #define DEVNAME "keycatch"
 #define BUF_LEN 80
@@ -37,14 +37,18 @@ static int arm_module_open(struct inode*, struct file*);
 static int arm_module_release(struct inode*, struct file*);
 static ssize_t arm_module_read(struct file*,  char *, size_t, loff_t *);
 static ssize_t arm_module_write(struct file*, const char *, size_t, loff_t *);
-
+static long arm_module_ioctl(struct file*, unsigned int, unsigned long);
 
 static struct file_operations fops={
 	.read=arm_module_read,
 	.write=arm_module_write,
 	.open=arm_module_open,
-	.release=arm_module_release
-
+	/* 2.6 kernel ioctl
+	 * 3.14 kernel unlocked_ioctl
+	 */
+	.unlocked_ioctl=arm_module_ioctl,
+	.release=arm_module_release,
+	
 };
 
 /* /proc/ operations */
@@ -90,8 +94,9 @@ static int __init arm_module_init(void) {
 	 /* 3.14 kernel does not have create_proc_entry.
 	  * proc_filp=create_proc_entry(PROC_NAME, 0644, NULL); -> valid in 2.6 kernel.
 	  * Use proc_create include/linux/proc_fs.h
-	  * static inline struct proc_dir_entry *proc_create(const char *name, umode_t mode, struct proc_dir_entry *parent,
-															const struct file_operations *proc_fops)
+	  * static inline struct proc_dir_entry *proc_create(const char *name, umode_t mode,
+												struct proc_dir_entry *parent,
+												const struct file_operations *proc_fops)
 	  */
 	proc_filp=proc_create(PROC_NAME,0644,NULL,&procfops);
 	
@@ -151,8 +156,25 @@ static int arm_module_read(struct file * filp, char *buffer, size_t len, loff_t 
 }	
 
 static int arm_module_write(struct file *filp, const char *buffer, size_t len, loff_t * offset){
-	printk(KERN_INFO"write to \n");
+	printk(KERN_INFO"ARM module write \n");
 	return -EINVAL;
+}
+
+static long arm_module_ioctl(struct file* filp, unsigned int ioctl_num, unsigned long param) {
+	
+	switch(ioctl_num) {
+		case IOCTL_READ_USR_MSG:
+			/* length is not calculated */
+			arm_module_write(filp,(char*)param,0,NULL);
+		break;
+		case IOCTL_WRITE_USR_MSG:
+			arm_module_read(filp,(char*)param,BUF_LEN,0);
+		break;
+		default:
+		break;
+	}
+	return 0;
+	
 }
 
 /*/proc/ operations */
@@ -221,7 +243,7 @@ MODULE_AUTHOR("LINUX BOT");
 	open: arm_open,
 	release: arm_release
 };
-
+		or
 5. struct file_operations fops ={
 	.read=arm_read,
 	.write=arm_write,
@@ -230,6 +252,41 @@ MODULE_AUTHOR("LINUX BOT");
 };
 
 6. proc_register_dynamic();
+
+7. 3.14 kernel file_operations
+struct file_operations {
+	struct module *owner;
+	loff_t (*llseek) (struct file *, loff_t, int);
+	ssize_t (*read) (struct file *, char __user *, size_t, loff_t *);
+	ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *);
+	ssize_t (*aio_read) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
+	ssize_t (*aio_write) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
+	int (*iterate) (struct file *, struct dir_context *);
+	unsigned int (*poll) (struct file *, struct poll_table_struct *);
+	long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
+	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
+	int (*mmap) (struct file *, struct vm_area_struct *);
+	int (*open) (struct inode *, struct file *);
+	int (*flush) (struct file *, fl_owner_t id);
+	int (*release) (struct inode *, struct file *);
+	int (*fsync) (struct file *, loff_t, loff_t, int datasync);
+	int (*aio_fsync) (struct kiocb *, int datasync);
+	int (*fasync) (int, struct file *, int);
+	int (*lock) (struct file *, int, struct file_lock *);
+	ssize_t (*sendpage) (struct file *, struct page *, int, size_t, loff_t *, int);
+	unsigned long (*get_unmapped_area)(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
+	int (*check_flags)(int);
+	int (*flock) (struct file *, int, struct file_lock *);
+	ssize_t (*splice_write)(struct pipe_inode_info *, struct file *, loff_t *, size_t, unsigned int);
+	ssize_t (*splice_read)(struct file *, loff_t *, struct pipe_inode_info *, size_t, unsigned int);
+	int (*setlease)(struct file *, long, struct file_lock **);
+	long (*fallocate)(struct file *file, int mode, loff_t offset,
+			  loff_t len);
+	int (*show_fdinfo)(struct seq_file *m, struct file *f);
+};
+
+
+
 
 */
 
