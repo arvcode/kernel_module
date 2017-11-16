@@ -13,13 +13,13 @@
 #include<linux/module.h>
 #include<linux/kernel.h> /* needed for printk*/
 #include<linux/fs.h>
-#include<asm/uaccess.h>
+#include<asm/uaccess.h> /* for put_user & get_user */
 #include<linux/proc_fs.h>
+#include<linux/sched.h>
 #include"arm_ioctl.h"
 /* /dev/  entry*/
 #define DEVNAME "keycatch"
 #define BUF_LEN 80
-
 /* /proc/ entry */
 #define PROC_NAME "keycatch"
 
@@ -28,9 +28,12 @@ static char* test="test";
 module_param(test,charp,S_IRUGO);
 MODULE_PARM_DESC(test, "test code");
 
-static int major_number,open_dev;
+static int major_number,open_dev,open_proc;
+
 static char msg[BUF_LEN];
 static char *msg_ptr;
+
+DECLARE_WAIT_QUEUE_HEAD(wait_q);
 
 /* /dev/ file operations */
 static int arm_module_open(struct inode*, struct file*);
@@ -38,6 +41,21 @@ static int arm_module_release(struct inode*, struct file*);
 static ssize_t arm_module_read(struct file*,  char *, size_t, loff_t *);
 static ssize_t arm_module_write(struct file*, const char *, size_t, loff_t *);
 static long arm_module_ioctl(struct file*, unsigned int, unsigned long);
+
+/* /proc/ operations */
+/* valid in 2.6 kernel 
+*int procfile_read(char *buffer, char ** buffer_loc, off_t offset, int buff_len, int *eof, void *data);
+*/
+/* 3.14 kernel needs to use file_operations */
+int procfile_read (struct file*, char *, size_t, loff_t *);
+int procfile_write (struct file*, const char *, size_t, loff_t *);
+int procfile_open(struct inode* , struct file* );
+int procfile_release(struct inode*, struct file*);
+
+/*
+ * Note struct proc_dir_entry has changed in 3.14 kernel.
+ */
+struct proc_dir_entry *proc_filp; 
 
 static struct file_operations fops={
 	.read=arm_module_read,
@@ -51,24 +69,12 @@ static struct file_operations fops={
 	
 };
 
-/* /proc/ operations */
-
-/*
- * Note struct proc_dir_entry has changed in 3.14 kernel.
- */
-struct proc_dir_entry *proc_filp; 
-
-/* valid in 2.6 kernel 
-*int procfile_read(char *buffer, char ** buffer_loc, off_t offset, int buff_len, int *eof, void *data);
-*/
-/* 3.14 kernel needs to use file_operations */
-int procfile_read (struct file*, char *, size_t, loff_t *);
-int procfile_write (struct file*, const char *, size_t, loff_t *);
-
 struct file_operations procfops ={
 	.read=procfile_read,
 	.owner=THIS_MODULE,
-	.write=procfile_write
+	.write=procfile_write,
+	.open=procfile_open,
+	.release=procfile_release
 };
 
 /* insmod  create a character driver*
@@ -117,7 +123,7 @@ static void __exit arm_module_exit(void) {
 	/* Unsupported in 3.14 kernel &proc_root.
 	 * remove_proc_entry(PROC_NAME, &proc_root);
 	 */
-	 remove_proc_entry(PROC_NAME, NULL);
+	remove_proc_entry(PROC_NAME, NULL);
 	printk(KERN_INFO" removed /proc entry \n");
 }
 
@@ -137,6 +143,7 @@ static int arm_module_open(struct inode* inode, struct file* file) {
 
 static int arm_module_release(struct inode* inode, struct file* file) {
 	open_dev--;
+	printk(KERN_INFO"module is closed \n");
 	module_put(THIS_MODULE);
 	return 0;	
 }
@@ -185,7 +192,7 @@ static long arm_module_ioctl(struct file* filp, unsigned int ioctl_num, unsigned
 int procfile_read (struct file* filp , char * buffer, size_t len, loff_t * offset) {
 	
 	int ret=0;
-	char buff[50];
+	char buff[1024];
 	char *bufp=buff;
 	sprintf(buff,"/proc/keycatcher-> your /dev/keycatch major number is %d \n",major_number);
 		
@@ -203,12 +210,38 @@ int procfile_write (struct file* filp, const char *buffer , size_t len, loff_t *
 	printk(KERN_INFO"Write to proc ! \n");
 	/*copy_from_user();- multi character */
 	if (copy_from_user(buff,buffer,len)) {
+		printk(KERN_INFO"copy_from_user error \n");
 		return -EFAULT;
 	}
 	printk(KERN_INFO"FROM USERSPACE %s",buff);
 	return len;
 }
 
+int procfile_open(struct inode* inode, struct file* filp) {
+	
+	if (filp->f_flags & O_NONBLOCK && open_proc) {
+		printk(KERN_INFO"PROC FILE OPEN -> NON BLOCKING IS SET \n");
+		return -EAGAIN;		
+	}
+	/* increase once */
+	try_module_get(THIS_MODULE);
+	while(open_proc) {
+		/* wait for condition , open_proc=0 */
+		wait_event_interruptible(wait_q, !open_proc);		
+	}
+	open_proc=1;
+	return 0;
+
+}
+
+int procfile_release(struct inode* inode, struct file* filp) {
+	
+	open_proc=0;
+	/* wake up all waiting processess on queue */
+	wake_up(&wait_q);
+	module_put(THIS_MODULE);
+	return 0;
+}
 
 module_init(arm_module_init);
 module_exit(arm_module_exit);
@@ -223,11 +256,9 @@ MODULE_LICENSE("NO GPL");
 MODULE_AUTHOR("LINUX BOT");
 
 
-
 /* 
  * -EOF- 
  */
- 
  
 /*
  * Function and struct reference 
@@ -285,8 +316,47 @@ struct file_operations {
 	int (*show_fdinfo)(struct seq_file *m, struct file *f);
 };
 
+8. wait_event_interruptible(); -> TASK_INTERRUPTIBLE
+9. extern void* sys_call_table[];
+	sys_call_table[__NR_open]-> for open
+	asmlinkage int (*original_call)(const char *,int, int); -> open System call
+	
+10. struct inode_operations {
+	struct dentry * (*lookup) (struct inode *,struct dentry *, unsigned int);
+	void * (*follow_link) (struct dentry *, struct nameidata *);
+	
+	**permission is changed in 3.14 kernel. 2.6 kernel -> int (*permission) (struct inode *, int, unsigned int);
+	
+	int (*permission) (struct inode *, int);
+	struct posix_acl * (*get_acl)(struct inode *, int);
 
+	int (*readlink) (struct dentry *, char __user *,int);
+	void (*put_link) (struct dentry *, struct nameidata *, void *);
 
+	int (*create) (struct inode *,struct dentry *, umode_t, bool);
+	int (*link) (struct dentry *,struct inode *,struct dentry *);
+	int (*unlink) (struct inode *,struct dentry *);
+	int (*symlink) (struct inode *,struct dentry *,const char *);
+	int (*mkdir) (struct inode *,struct dentry *,umode_t);
+	int (*rmdir) (struct inode *,struct dentry *);
+	int (*mknod) (struct inode *,struct dentry *,umode_t,dev_t);
+	int (*rename) (struct inode *, struct dentry *,
+			struct inode *, struct dentry *);
+	int (*setattr) (struct dentry *, struct iattr *);
+	int (*getattr) (struct vfsmount *mnt, struct dentry *, struct kstat *);
+	int (*setxattr) (struct dentry *, const char *,const void *,size_t,int);
+	ssize_t (*getxattr) (struct dentry *, const char *, void *, size_t);
+	ssize_t (*listxattr) (struct dentry *, char *, size_t);
+	int (*removexattr) (struct dentry *, const char *);
+	int (*fiemap)(struct inode *, struct fiemap_extent_info *, u64 start,
+		      u64 len);
+	int (*update_time)(struct inode *, struct timespec *, int);
+	int (*atomic_open)(struct inode *, struct dentry *,
+			   struct file *, unsigned open_flag,
+			   umode_t create_mode, int *opened);
+	int (*tmpfile) (struct inode *, struct dentry *, umode_t);
+	int (*set_acl)(struct inode *, struct posix_acl *, int);
+} ____cacheline_aligned;
 
 */
 

@@ -12,9 +12,12 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<fcntl.h>
+#include<errno.h>
 #include"arm_ioctl.h"
+
 #define DEV_NAME "/dev/keycatch"
 #define PROC_NAME "/proc/keycatch"
+
 int main() {
 	int fd=0;
 	char buff[100];
@@ -27,7 +30,7 @@ int main() {
 	printf("buff is %s \n",buff);
 	system(buff);
 	sprintf(buff,"%c",'\0');
-	while(1){
+	//while(1){
 		fd=open(DEV_NAME,0);
 		if (fd<0) {
 			sprintf(buff,"cannot open file \n");
@@ -50,23 +53,34 @@ int main() {
 		printf("IOCTL call buff is %s \n",buff);
 		close(fd);
 		sleep(1);
-		
 		/*
 		 *uapi/asm-generic/fcntl.h
 		 *#define O_RDONLY        00000000
 		 *#define O_WRONLY        00000001
 		 *#define O_RDWR          00000002
 		 */
-		fd=open(PROC_NAME,O_RDWR); 
+	 
+		fd=open(PROC_NAME,O_RDWR );  /* | O_NONBLOCK*/
 		if (fd<0) {
 			printf("Cannot open /proc \n");	
+			if (errno == EAGAIN) {
+				printf("file open in NON BLOCKING mode\n");
+			}
 			return -1;
 		}
-		read(fd,buff,sizeof(buff));
+	while(1){
+		
+		ret=read(fd,buff,sizeof(buff));
+		if (ret<0) {
+			if (errno==EAGAIN) {
+					printf("non blocking read \n");
+			}			
+		}
 		printf("PROC CONTENTS \n %s \n", buff);
-		sprintf(buff,"Write to kernelspace \n");
+		sprintf(buff,"Write to kernelspace \n ------ EOP -------\n");
 		write(fd,buff, sizeof(buff));
-		close(fd);
+		
+		//close(fd);
 		sleep(1);
 		
 	}
