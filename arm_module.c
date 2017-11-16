@@ -16,13 +16,15 @@
 #include<asm/uaccess.h> /* for put_user & get_user */
 #include<linux/proc_fs.h>
 #include<linux/sched.h>
+#include<linux/tty.h>
+
 #include"arm_ioctl.h"
 /* /dev/  entry*/
 #define DEVNAME "keycatch"
 #define BUF_LEN 80
 /* /proc/ entry */
 #define PROC_NAME "keycatch"
-
+#define TIMER_DELAY HZ/2
 /* static variables sharing the same memory space in kernel */
 static char* test="test";
 module_param(test,charp,S_IRUGO);
@@ -34,6 +36,8 @@ static char msg[BUF_LEN];
 static char *msg_ptr;
 
 DECLARE_WAIT_QUEUE_HEAD(wait_q);
+
+
 
 /* /dev/ file operations */
 static int arm_module_open(struct inode*, struct file*);
@@ -77,10 +81,37 @@ struct file_operations procfops ={
 	.release=procfile_release
 };
 
+
+static void print_tty(char *str){
+	struct tty_struct *p_tty;
+	
+	p_tty=current->signal->tty;
+	
+	if (p_tty !=NULL) {
+			/* tty_struct changed in 3.14 kernel 
+			 * 2.6 kernel p_tty->driver->write 
+			 * /include/linux/tty_driver.h
+			 */
+			((p_tty->driver->ops)->write)(p_tty,str,strlen(str));
+	}
+	((p_tty->driver->ops)->write) (p_tty, "\015\012", 2);
+	
+	
+}
+
+struct timer_list timer_s;
+
+static void timer_s_func(unsigned long ptr) {
+	printk(KERN_INFO"INSIDE TIMER \n");
+	timer_s.expires=jiffies+TIMER_DELAY;
+	add_timer(&timer_s);
+	
+}
+
+
 /* insmod  create a character driver*
  * register a file in /proc 
  */
-
 static int __init arm_module_init(void) {
 	
 	/* /dev/ entry */
@@ -94,6 +125,9 @@ static int __init arm_module_init(void) {
 	try_module_get(THIS_MODULE);
 	module_put(THIS_MODULE); /* decremented /proc/modules */
 	printk(KERN_INFO"Major number assigned is %d, mknod /dev/%s c %d 0",major_number,DEVNAME,major_number);
+	
+	
+	print_tty("USING TTY PRINT \n");
 	
 	/* /proc/ entry */
 
@@ -113,6 +147,11 @@ static int __init arm_module_init(void) {
 
 	printk(KERN_INFO"/proc entry created \n");
 	
+	init_timer(&timer_s);
+	timer_s.function=timer_s_func;
+	timer_s.expires=jiffies+TIMER_DELAY;
+	add_timer(&timer_s);
+	
 	return 0;
 }
 
@@ -125,6 +164,7 @@ static void __exit arm_module_exit(void) {
 	 */
 	remove_proc_entry(PROC_NAME, NULL);
 	printk(KERN_INFO" removed /proc entry \n");
+	del_timer(&timer_s);
 }
 
 /* File operations */
