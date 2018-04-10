@@ -1,0 +1,39 @@
+inode- pointer to the location in disk where the file's index node is located.
+		inode contains permissions,  pointer to location where the date is located.
+network byte order- MSB first.(octet).
+wallclock time-NTP timestap format, seconds relative to jan 1 90 0h UTC
+defined location in kernel -system call
+							checks call number, sys_call_table
+TASK__INTERRUPTIBLE - wait_queue
+module_interruptible_sleep_on
+printascii
+
+
+IOCTL -> UNLOCKED_IOCTL->SOCK_IOCTL-> SOCK_DO_IOCTL->DEV_IOCTL (linux/net/core)->phy_mii_ioctl
+
+
+/sys/class/mdio_bus/eth0/device/eth0:00/subsystem/drivers
+
+
+
+SA_INTERRUPT- fast interrupt
+SA_SHIRQ- Shared interrupt
+queue_
+gerwork()
+mark_bh(BH_IMMEDIATE)
+swap cache
+page cache
+buffer cache
+hardware cache
+translation look aside buffer
+
+execvp execlp - path, no p then full path
+
+execv execve execvp - arg list
+
+execl execlp execle -varags
+
+execve execle - env variables "VARIABLE=name"
+posix standard api pthread
+mutual exclusion locks
+
